@@ -1,0 +1,13 @@
+telethon
+tgcrypto
+aiohttp
+requests
+aiofiles
+psutil
+python-dateutil
+pytz
+beautifulsoup4
+gTTS
+yt-dlp
+imageio-ffmpeg
+edge-tts
