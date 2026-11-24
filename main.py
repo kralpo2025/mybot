@@ -3379,6 +3379,142 @@ async def antidel_edited_handler(event):
     except Exception as e:
         logger.error(f"Antidel edited handler error: {e}")
 
+# === BOTAPI POLLER (MERGED) ===
+# Bot API long-poller for the management bot (@Ajdhhdudhdhbot), merged into
+# this single process (was botapi_poller.py). Runs in a daemon thread: the
+# Telethon selfbot runs on the asyncio loop, the poller does blocking
+# getUpdates long-polls in its own thread. They talk through the same JSON
+# files as before (botapi_request.json / botapi_reply.json / botapi_status.json
+# / botapi_offset.txt), and botapi_ipc_loop serves the login steps.
+import threading as _threading
+import urllib.request as _urllib_request
+import urllib.error as _urllib_error
+
+_BOTAPI_HERE = os.path.dirname(os.path.abspath(__file__))
+_BOTAPI_STATUS_FILE = os.path.join(_BOTAPI_HERE, "botapi_status.json")
+_BOTAPI_REQ_FILE = os.path.join(_BOTAPI_HERE, "botapi_request.json")
+_BOTAPI_REPLY_FILE = os.path.join(_BOTAPI_HERE, "botapi_reply.json")
+_BOTAPI_LOCK_FILE = os.path.join(_BOTAPI_HERE, "botapi.lock")
+_BOTAPI_OFFSET_FILE = os.path.join(_BOTAPI_HERE, "botapi_offset.txt")
+_BOTAPI_API = "https://api.telegram.org/bot" + BOT_TOKEN
+_botapi_stop_event = _threading.Event()
+
+
+def _botapi_api_call(method, payload=None, timeout=35):
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = _urllib_request.Request(
+        _BOTAPI_API + "/" + method, data=data,
+        headers={"Content-Type": "application/json"}, method="POST" if data else "GET",
+    )
+    with _urllib_request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _botapi_send_message(chat_id, text):
+    try:
+        _botapi_api_call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+    except Exception as e:
+        print(f"botapi sendMessage failed: {e}", flush=True)
+
+
+def _botapi_read_status():
+    try:
+        with open(_BOTAPI_STATUS_FILE, encoding="utf-8") as f:
+            st = json.load(f)
+        if time.time() - st.get("ts", 0) > 600:
+            return None
+        return st
+    except Exception:
+        return None
+
+
+def _botapi_handle_start(chat_id):
+    st = _botapi_read_status()
+    if st and st.get("user_connected"):
+        status = "🟢 متصل"
+    elif st:
+        status = "🔴 قطع"
+    else:
+        status = "⚠️ نامشخص (وضعیت به‌روز نیست)"
+    _botapi_send_message(
+        chat_id,
+        f"✅ **ربات آنلاین است!**\nوضعیت یوزربات: {status}\n\n1️⃣ `/phone +98...`\n2️⃣ `/code 12345`",
+    )
+
+
+def _botapi_forward_login(chat_id, text):
+    req_id = str(int(time.time() * 1000))
+    req = {"id": req_id, "chat_id": chat_id, "text": text}
+    with open(_BOTAPI_REQ_FILE, "w", encoding="utf-8") as f:
+        json.dump(req, f)
+    for _ in range(120):
+        if _botapi_stop_event.is_set():
+            return
+        time.sleep(0.5)
+        try:
+            with open(_BOTAPI_REPLY_FILE, encoding="utf-8") as f:
+                rep = json.load(f)
+            if rep.get("id") == req_id:
+                os.remove(_BOTAPI_REPLY_FILE)
+                _botapi_send_message(chat_id, rep.get("text", "✅ انجام شد."))
+                return
+        except FileNotFoundError:
+            continue
+        except Exception:
+            continue
+    _botapi_send_message(chat_id, "❌ پاسخی از یوزربات نرسید؛ دوباره تلاش کن.")
+
+
+def _botapi_poller_loop():
+    try:
+        _lock = open(_BOTAPI_LOCK_FILE, "w")
+        try:
+            fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("botapi_poller: another poller is already running", flush=True)
+            return
+    except Exception as e:
+        print(f"botapi_poller: lock failed: {e}", flush=True)
+        return
+    offset = 0
+    try:
+        with open(_BOTAPI_OFFSET_FILE) as f:
+            offset = int(f.read().strip() or 0)
+    except Exception:
+        offset = 0
+    print("botapi_poller started", flush=True)
+    while not _botapi_stop_event.is_set():
+        try:
+            res = _botapi_api_call("getUpdates", {"offset": offset, "timeout": 30}, timeout=35)
+            for upd in res.get("result", []):
+                offset = upd["update_id"] + 1
+                with open(_BOTAPI_OFFSET_FILE, "w") as f:
+                    f.write(str(offset))
+                msg = upd.get("message") or {}
+                chat_id = (msg.get("chat") or {}).get("id")
+                text = (msg.get("text") or "").strip()
+                if not chat_id or not text:
+                    continue
+                if time.time() - int(msg.get("date") or 0) > 300:
+                    continue
+                if text.startswith("/start"):
+                    _botapi_handle_start(chat_id)
+                elif text.startswith("/phone ") or text.startswith("/code ") or text.startswith("/password "):
+                    _botapi_forward_login(chat_id, text)
+        except _urllib_error.HTTPError as e:
+            print(f"botapi_poller getUpdates HTTP {e.code}", flush=True)
+            _botapi_stop_event.wait(5)
+        except Exception as e:
+            print(f"botapi_poller error: {e}", flush=True)
+            _botapi_stop_event.wait(5)
+
+
+def start_botapi_poller_thread():
+    t = _threading.Thread(target=_botapi_poller_loop, daemon=True, name="botapi-poller")
+    t.start()
+    return t
+# === END BOTAPI POLLER (MERGED) ===
+
 # ==========================================
 # استارت ربات
 # ==========================================
@@ -3394,6 +3530,7 @@ if __name__ == '__main__':
         print("⚠️ Another mybot instance is already running. Exiting.")
         raise SystemExit(0)
     print("🚀 استارت سرویس‌ها...")
+    start_botapi_poller_thread()
     loop = asyncio.get_event_loop()
     
     bot.start(bot_token=BOT_TOKEN)
