@@ -1027,6 +1027,10 @@ async def botapi_ipc_loop():
                             await user_client.sign_in(phone=login_state.get('phone'), code=_code, phone_code_hash=login_state.get('hash'))
                             _out = "✅ **ورود موفقیت‌آمیز بود!**"
                             await set_initial_base_name()
+                            if not login_state.get('loops_started'):
+                                login_state['loops_started'] = True
+                                asyncio.get_running_loop().create_task(background_profile_updater())
+                                asyncio.get_running_loop().create_task(heartbeat_loop())
                         except SessionPasswordNeededError:
                             _out = "⚠️ **رمز دوم را بفرست:**\n`/password رمز`"
                         except Exception as _e:
@@ -1037,6 +1041,10 @@ async def botapi_ipc_loop():
                             await user_client.sign_in(password=_pw)
                             _out = "✅ ورود کامل شد!"
                             await set_initial_base_name()
+                            if not login_state.get('loops_started'):
+                                login_state['loops_started'] = True
+                                asyncio.get_running_loop().create_task(background_profile_updater())
+                                asyncio.get_running_loop().create_task(heartbeat_loop())
                         except Exception as _e:
                             _out = f"❌ خطا: {_e}"
                 except Exception as _e:
@@ -3540,14 +3548,16 @@ if __name__ == '__main__':
         try:
             if os.path.exists(USER_SESSION + '.session'):
                 print("🔄 سشن یافت شد، در حال اتصال...")
-                await user_client.connect()
-                if await user_client.is_user_authorized():
-                    await set_initial_base_name()
-                    print("✅ یوزربات متصل شد!")
-                    loop.create_task(background_profile_updater())
-                    loop.create_task(heartbeat_loop())
-                    loop.create_task(botapi_ipc_loop())
+            await user_client.connect()
+            if await user_client.is_user_authorized():
+                await set_initial_base_name()
+                print("✅ یوزربات متصل شد!")
+                loop.create_task(background_profile_updater())
+                loop.create_task(heartbeat_loop())
+            else:
+                print("⚠️ یوزربات لاگین نشده — با /phone وارد شوید.")
         except Exception as e: print(f"⚠️ مشکل اتصال: {e}")
+        loop.create_task(botapi_ipc_loop())
 
     loop.create_task(check_user_session())
     try: bot.run_until_disconnected()
