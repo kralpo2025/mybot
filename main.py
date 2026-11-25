@@ -37,7 +37,7 @@ def get_tehran_now():
 # ==========================================
 API_ID = 27868969
 API_HASH = "bdd2e8fccf95c9d7f3beeeff045f8df4"
-BOT_TOKEN = "8347610940:AAFqdctDBljBNOZdxb_Gn_L2tzMpOvjJLrQ"
+BOT_TOKEN = "8347610940:AAGFiFzTFbprdjA6hRITKzcteOvnauyAGzc"
 
 # کلیدهای API هرگز در کد نیستند — فقط در config.json روی هاست، داخل توکن هر مدل سفارشی (.add)
 
