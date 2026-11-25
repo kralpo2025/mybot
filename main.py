@@ -74,7 +74,8 @@ DEFAULT_CONFIG = {
     "lang": "mix", # fa: فارسی, en: انگلیسی, mix: ترکیبی و شیک (پیش‌فرض)
     "custom_models": {}, # مدل‌های AI سفارشی: نام -> {id, name, provider, url, api_key} (کلید فقط در config.json روی هاست می‌ماند، هرگز در کد نیست)
     "custom_tools": {}, # ابزارهای AI سفارشی (Agent): نام -> {url, api_key, method, desc} — کلید فقط در config.json روی هاست می‌ماند، هرگز در کد نیست
-    "antidel": False # ضدحذف و ضدویرایش پیام‌های پیوی (ذخیره در سیو مسیج)
+    "antidel": False, # ضدحذف و ضدویرایش پیام‌های پیوی (ذخیره در سیو مسیج)
+    "paused": False # توقف کامل سلف‌بات با .خاموش — فقط .روشن دوباره فعالش می‌کند
 }
 
 def load_config():
@@ -1115,6 +1116,19 @@ async def background_profile_updater():
 # ==========================================
 
 # منوی تنظیم زبان (UI Language Settings)
+
+# نگهبان توقف (.خاموش / .روشن) — باید قبل از همه‌ی هندلرهای یوزربات ثبت شود:
+# وقتی خاموش است، سلف‌بات هیچ کاری نمی‌کند و فقط دستور روشن عبور می‌کند.
+@user_client.on(events.NewMessage())
+async def pause_guard(event):
+    if not config.get("paused"):
+        return
+    if event.out:
+        text = (event.raw_text or "").strip()
+        if text in (".روشن", ".on", ".خاموش", ".off"):
+            return
+    raise events.StopPropagation
+
 @user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.st(?:\s+(\d))?$'))
 async def ui_lang_menu(event):
     choice = event.pattern_match.group(1)
@@ -1209,6 +1223,7 @@ async def help_cmd(event):
 ⊳ `.اپتایم` : نمایش مدت زمان فعالیت
 ⊳ `.ریست` : پاکسازی کش و رم سیستم
 ⊳ `.ریستارت` : راه‌اندازی مجدد ربات
+⊳ `.خاموش` / `.روشن` : توقف کامل / روشن کردن دوباره سلف‌بات
 ⊳ `.ping` : تست سرعت اتصال
 ⊳ `.info` : استخراج اطلاعات کاربر
 ⊳ `.ghost [متن]` : پیام محو شونده (۳ثانیه)
@@ -1266,6 +1281,7 @@ async def help_cmd(event):
 ⊳ `.اپتایم` : Bot Uptime
 ⊳ `.ریست` : Clear Cache & RAM
 ⊳ `.ریستارت` : Restart Bot
+⊳ `.خاموش` / `.روشن` : Pause / Resume userbot
 ⊳ `.ping` : Connection Speed Test
 ⊳ `.info` : Extract User Info
 ⊳ `.ghost [text]` : Auto-delete msg (3s)
@@ -1323,6 +1339,7 @@ async def help_cmd(event):
 ⊳ `.اپتایم` : زمان روشنی | Uptime
 ⊳ `.ریست` : پاکسازی رم | Reset Cache
 ⊳ `.ریستارت` : راه‌اندازی مجدد | Restart
+⊳ `.خاموش` / `.روشن` : توقف کامل | Pause / روشن کردن | Resume
 ⊳ `.ping` : تست سرعت | Ping
 ⊳ `.info` : اطلاعات کاربر | User Info
 ⊳ `.ghost [text]` : پیام روح | Ghost Msg
@@ -1336,6 +1353,16 @@ async def help_cmd(event):
 async def restart_bot(event):
     await event.edit(_t("🔄 در حال راه‌اندازی مجدد یوزربات...", "🔄 Restarting Userbot...", "🔄 ❲ ریستارت | Restarting ❳..."))
     os.execl(sys.executable, sys.executable, *sys.argv)
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(خاموش|off)$'))
+async def pause_selfbot(event):
+    config["paused"] = True; save_config(config)
+    await event.edit(_t("💤 **سلف‌بات خاموش شد.**\nدیگر هیچ کاری نمی‌کند — فقط با `.روشن` دوباره روشن می‌شود.", "💤 **Userbot paused.**\nIt will do nothing until `.روشن` turns it back on.", "💤 ❲ سلف‌بات خاموش شد | Userbot Paused ❳\nدیگر هیچ کاری نمی‌کند — فقط با `.روشن` روشن می‌شود | Only `.روشن` turns it back on."))
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(روشن|on)$'))
+async def resume_selfbot(event):
+    config["paused"] = False; save_config(config)
+    await event.edit(_t("✅ **سلف‌بات روشن شد.**\nدوباره مثل قبل کار می‌کند.", "✅ **Userbot resumed.**\nWorking again as before.", "✅ ❲ سلف‌بات روشن شد | Userbot Resumed ❳\nدوباره مثل قبل کار می‌کند | Working again."))
 
 @user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(set|ست)$'))
 async def force_time_sync_cmd(event):
