@@ -2241,7 +2241,7 @@ async def downloader(event):
 # yt-dlp و imageio-ffmpeg فقط همین‌جا و به‌صورت تنبل (lazy) ایمپورت می‌شوند،
 # تا نبودنشان در زمان راه‌اندازی باعث کرش ربات نشود.
 # ==========================================
-SPOTIFY_MAX_MB = 500  # سقف حجم فایل — مثل دانلودر مستقیم (از ۵۰ به ۵۰۰ رفت: فایل‌های بالای ۵۰ مگ دانلود نمی‌شدند)
+SPOTIFY_MAX_MB = 2048  # سقف حجم فایل — مثل دانلودر مستقیم (از ۵۰ به ۲۰۴۸ رفت: سقف ۲ گیگابایت)
 _SPOTIFY_RE = re.compile(r'(?:open\.spotify\.com/(?:intl-[a-z]{2}/)?track/([A-Za-z0-9]{22})|spotify:track:([A-Za-z0-9]{22}))')
 _SPOTIFY_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
@@ -2649,7 +2649,7 @@ async def tts_cmd(event):
                 pass
 
 # سقف حجم هر فایل در .for — مثل .دانلود
-FOR_MAX_MB = 500  # سقف حجم فایل در .for (از ۵۰ به ۵۰۰ رفت)
+FOR_MAX_MB = 2048  # سقف حجم فایل در .for (سقف ۲ گیگابایت)
 
 def _for_albumable(m):
     """True اگر مدیای پیام بتواند جزو یک آلبوم تلگرام باشد (عکس / ویدیوی معمولی)."""
@@ -2777,7 +2777,7 @@ async def forward_restricted(event):
 # ==========================================
 # دانلود مستقیم فایل (لینک مستقیم — نه لینک صفحه شبکه اجتماعی)
 # ==========================================
-DIRECT_MAX_MB = 500  # سقف حجم فایل در .دانلود (از ۵۰ به ۵۰۰ رفت)
+DIRECT_MAX_MB = 2048  # سقف حجم فایل در .دانلود (سقف ۲ گیگابایت)
 
 @user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.دانلود(?:\s+(https?://\S+))?$'))
 async def direct_download(event):
