@@ -14,6 +14,8 @@ import subprocess
 import psutil
 import mimetypes
 import urllib.parse
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 import pytz
 import aiohttp
@@ -74,6 +76,10 @@ DEFAULT_CONFIG = {
     "lang": "mix", # fa: فارسی, en: انگلیسی, mix: ترکیبی و شیک (پیش‌فرض)
     "custom_models": {}, # مدل‌های AI سفارشی: نام -> {id, name, provider, url, api_key} (کلید فقط در config.json روی هاست می‌ماند، هرگز در کد نیست)
     "custom_tools": {}, # ابزارهای AI سفارشی (Agent): نام -> {url, api_key, method, desc} — کلید فقط در config.json روی هاست می‌ماند، هرگز در کد نیست
+    "gtts_keys": [], # کلیدهای Gemini API برای ویس — فقط در config.json روی هاست می‌ماند، هرگز در کد نیست
+    "gtts_voice": "Aoede", # صدای پیش‌فرض Gemini TTS
+    "gtts_tone": "normal", # لحن پیش‌فرض Gemini TTS
+    "gtts_model": "gemini-2.5-flash-preview-tts", # مدل پیش‌فرض Gemini TTS
     "antidel": False, # ضدحذف و ضدویرایش پیام‌های پیوی (ذخیره در سیو مسیج)
     "paused": False # توقف کامل سلف‌بات با .خاموش — فقط .روشن دوباره فعالش می‌کند
 }
@@ -1174,146 +1180,176 @@ def _tools_help_sections():
 @user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.راهنما$'))
 async def help_cmd(event):
     fa_help = """
-💎 ❲ **راهنمای جامع یوزربات کرال** ❳ 💎
+💎 ❲ راهنمای یوزربات کرال ❳ 💎
 ━━━━━━━━━━━━━━━━━━━
-🤖 **هوش مصنوعی و چت:**
-⊳ `.ai [متن]` : چت با دستیار هوشمند (روی عکس ریپلای کن تا ببیندش؛ می‌تواند کانال را چک کند و گزارش بدهد)
-⊳ `.فراموش` : پاک کردن حافظه‌ی چت فعلی
-⊳ `.tool add نام | آدرس | کلید | توضیح` یا توضیح آزاد : ثبت API به‌عنوان ابزار — بعد با `.{نام} <ورودی>` صدا می‌زنیش
+🤖 هوش مصنوعی و چت:
+⊳ `.ai [متن]` : چت هوشمند (روی عکس ریپلای کن تا ببیندش)
+⊳ `.فراموش` : پاک کردن حافظه‌ی چت
+⊳ `.tool add نام | آدرس | کلید | توضیح` : ثبت API به‌عنوان ابزار
 ⊳ `.tool list` / `.tool del [نام]` : لیست و حذف ابزارها
-⊳ `.نظر` : تحلیل پیام ریپلای شده
-⊳ `.ais` / `.models` : لیست مدل‌های اضافه‌شده (فقط مدل‌های خودت)
-⊳ `.add` : ویزارد مرحله‌ای افزودن مدل (یا `.add نام | مدل | کلید | آدرس`)
-⊳ `.del [نام]` : حذف مدل اضافه‌شده
-⊳ `.ailen [1/2]` : تغییر طول پیام AI
-⊳ `.tone` : تنظیم لحن پاسخگویی ربات
-⊳ `.kral` : تنظیم سطح دفاع از نام شما
-⊳ `.pv [1/2]` : پاسخگوی خودکار پیوی
-⊳ `.gp [1/2]` : پاسخگوی خودکار گروه‌ها
+⊳ `.نظر` : تحلیل پیام ریپلای‌شده
+⊳ `.ais` / `.models` : لیست مدل‌های AI
+⊳ `.add` : ویزارد افزودن مدل AI
+⊳ `.del [نام]` : حذف مدل AI
+⊳ `.ailen [1/2]` : طول پاسخ AI
+⊳ `.tone` : لحن پاسخگویی ربات
+⊳ `.kral` : سطح دفاع از نام
+⊳ `.pv [1/2]` / `.gp [1/2]` : منشی پیوی / گروه
 ⊳ `.type [1/2]` : افکت تایپ تدریجی
 
-🌐 **ابزارها و جستجو:**
+🎙 ویس:
+⊳ `.tts [متن]` / `.ویس [متن]` : متن به ویس (Edge-TTS / gTTS)
+⊳ `.gtts` / `.گویس [متن]` : متن به ویس با Gemini (۳۰ صدا + لحن)
+⊳ `.gkey` / `.گکلید` : مدیریت کلیدهای Gemini
+⊳ `.gkey add` / `.گکلید اضافه` : افزودن کلید Gemini (ویزارد)
+⊳ `.gkey del` / `.گکلید حذف [شماره/نام]` : حذف کلید Gemini
+⊳ `.gvoice` / `.گصدا [شماره/نام]` : انتخاب صدا (زنانه / مردانه)
+⊳ `.gtone` / `.گلحن [نام]` : انتخاب لحن ویس
+⊳ `.gmodel` / `.گمدل [شماره]` : انتخاب مدل Gemini TTS
+
+🎵 موزیک و دانلود:
+⊳ `.in` / `.sp` : دانلودر سریع مدیا
+⊳ `.spotify [لینک]` : دانلود آهنگ اسپاتیفای (mp3)
+⊳ `.دانلود [لینک]` : دانلود مستقیم فایل
+⊳ `.for [لینک]` : دور زدن قفل کانال‌ها (با کامنت)
+
+🔍 جستجو و ابزار:
 ⊳ `.image [متن]` : 🎨 نقاشی با هوش مصنوعی
 ⊳ `.tagall [متن]` : 📣 منشن نامرئی اعضا
-⊳ `.sch [متن]` : جستجوگر در اینترنت
-⊳ `.خبر` : گزارش مفصل و جذاب اخبار
-⊳ `.خبر کوتاه` : خلاصه سریع اخبار
-⊳ `.post [عدد]` : تنظیم تعداد پست خبری
+⊳ `.sch [متن]` : جستجوگر اینترنت
+⊳ `.خبر` / `.خبر کوتاه` : گزارش / خلاصه اخبار
+⊳ `.post [عدد]` : تعداد پست خبری
 ⊳ `.tr [زبان] [متن]` : مترجم هوشمند
-⊳ `.sum` : خلاصه‌ساز متون طولانی
-⊳ `.arz [ارز]` : نرخ دلار و ارزها به تومان
-⊳ `.fake [ثانیه]` : نمایش تایپ جعلی در چت
-⊳ `.ttl` : ذخیره بی‌صدای مدیای تایمردار در سیو مسیج
-⊳ `.antidel [1/0]` : ضدحذف و ضدویرایش پیام‌های پیوی
-⊳ `.دانلود [لینک]` : دانلود مستقیم فایل
+⊳ `.sum` : خلاصه‌ساز متن
+⊳ `.arz [ارز]` : نرخ دلار و ارزها
+⊳ `.fake [ثانیه]` : تایپ جعلی
+⊳ `.ttl` : ذخیره بی‌صدای مدیای تایمردار
+⊳ `.antidel [1/0]` : ضدحذف پیوی
 
-⚙️ **پروفایل و سیستم:**
-⊳ `.st` : 🌍 تنظیم زبان رابط کاربری
-⊳ `.setname [اسم]` : تنظیم نام اکانت
-⊳ `.setbio [متن]` : تنظیم بیو اکانت
-⊳ `.ست` : همگام‌سازی دستی زمان
-⊳ `.time [1/2]` : نمایش ساعت آنلاین
-⊳ `.font` : انتخاب از بین ۳۰ فونت عددی
+⚙️ سیستم و پروفایل:
+⊳ `.st` : 🌍 زبان رابط کاربری
+⊳ `.setname [اسم]` / `.setbio [متن]` : نام و بیوی اکانت
+⊳ `.ست` : همگام‌سازی زمان
+⊳ `.time [1/2]` : ساعت آنلاین
+⊳ `.font` : فونت ساعت (۳۰ مدل)
 ⊳ `.symbol [1/2/زمان]` : نماد چرخشی نام
-⊳ `.in` یا `.sp` : دانلودر سریع مدیا
-⊳ `.spotify [لینک]` : دانلود آهنگ اسپاتیفای (mp3)
-⊳ `.tts [متن]` / `.ویس [متن]` : تبدیل متن به ویس
-⊳ `.for [لینک]` : دور زدن قفل کانال‌ها (پشتیبانی از کامنت)
-⊳ `.وضعیت` : مانیتورینگ منابع سرور
-⊳ `.اپتایم` : نمایش مدت زمان فعالیت
-⊳ `.ریست` : پاکسازی کش و رم سیستم
+⊳ `.وضعیت` : مانیتورینگ سرور
+⊳ `.اپتایم` : مدت فعالیت
+⊳ `.ریست` : پاکسازی کش و رم
 ⊳ `.ریستارت` : راه‌اندازی مجدد ربات
-⊳ `.خاموش` / `.روشن` : توقف کامل / روشن کردن دوباره سلف‌بات
-⊳ `.ping` : تست سرعت اتصال
-⊳ `.info` : استخراج اطلاعات کاربر
-⊳ `.ghost [متن]` : پیام محو شونده (۳ثانیه)
-⊳ `.del` : حذف سریع پیام خود
+⊳ `.خاموش` / `.روشن` : توقف / روشن کردن سلف‌بات
+⊳ `.ping` : تست سرعت
+⊳ `.info` : اطلاعات کاربر
+⊳ `.ghost [متن]` : پیام محوشونده (۳ ثانیه)
+⊳ `.del` : حذف سریع پیام
 ⊳ `.afk [دلیل]` / `.back` : حالت عدم حضور
 """
 
     en_help = """
-💎 ❲ **Kral Userbot Guide** ❳ 💎
+💎 ❲ Kral Userbot Guide ❳ 💎
 ━━━━━━━━━━━━━━━━━━━
-🤖 **AI & Chat Automation:**
-⊳ `.ai [text]` : Smart AI Chat (reply to a photo so it can see it; it can check a channel and report back)
-⊳ `.فراموش` : Clear current chat memory
-⊳ `.tool add name | url | key | desc` or free-text explanation : Register an API as a tool — then call it with `.{name} <input>`
+🤖 AI & Chat:
+⊳ `.ai [text]` : Smart AI chat (reply to a photo so it can see it)
+⊳ `.فراموش` : Clear chat memory
+⊳ `.tool add name | url | key | desc` : Register an API as a tool
 ⊳ `.tool list` / `.tool del [name]` : List & delete tools
 ⊳ `.نظر` : Analyze replied message
-⊳ `.ais` / `.models` : List your added models (only your own)
-⊳ `.add` : Step-by-step wizard to add a model (or `.add name | model | key | url`)
-⊳ `.del [name]` : Delete an added model
-⊳ `.ailen [1/2]` : Change AI response length
-⊳ `.tone` : Set bot tone/personality
-⊳ `.kral` : Name defense sensitivity
-⊳ `.pv [1/2]` : Auto-reply Private
-⊳ `.gp [1/2]` : Auto-reply Groups
+⊳ `.ais` / `.models` : List AI models
+⊳ `.add` : Add AI model wizard
+⊳ `.del [name]` : Delete AI model
+⊳ `.ailen [1/2]` : AI response length
+⊳ `.tone` : Bot tone
+⊳ `.kral` : Name defense level
+⊳ `.pv [1/2]` / `.gp [1/2]` : PV / group auto-reply
 ⊳ `.type [1/2]` : Typing effect
 
-🌐 **Tools & Search:**
-⊳ `.image [text]` : 🎨 AI Image Gen
-⊳ `.tagall [text]` : 📣 Invisible Mention
-⊳ `.sch [text]` : Web Searcher
-⊳ `.خبر` : Detailed News Report
-⊳ `.خبر کوتاه` : Short News Titles
-⊳ `.post [num]` : Set news post count
-⊳ `.tr [lang] [text]` : Smart Translator
-⊳ `.sum` : Text Summarizer
-⊳ `.arz [code]` : Currency rates in Toman
-⊳ `.fake [seconds]` : Fake typing in chat
-⊳ `.ttl` : Silently save TTL media to Saved Messages
-⊳ `.antidel [1/0]` : Anti-delete & anti-edit for PV
-⊳ `.دانلود [link]` : Direct file download
+🎙 Voice:
+⊳ `.tts [text]` / `.ویس [text]` : Text to voice (Edge-TTS / gTTS)
+⊳ `.gtts` / `.گویس [text]` : Text to voice with Gemini (30 voices + tone)
+⊳ `.gkey` / `.گکلید` : Manage Gemini keys
+⊳ `.gkey add` / `.گکلید اضافه` : Add Gemini key (wizard)
+⊳ `.gkey del` / `.گکلید حذف [number/name]` : Delete Gemini key
+⊳ `.gvoice` / `.گصدا [number/name]` : Pick voice (female / male)
+⊳ `.gtone` / `.گلحن [name]` : Pick voice tone
+⊳ `.gmodel` / `.گمدل [number]` : Pick Gemini TTS model
 
-⚙️ **Profile & System:**
-⊳ `.st` : 🌍 UI Language Settings
-⊳ `.setname [name]` : Set Base Name
-⊳ `.setbio [text]` : Set Account Bio
-⊳ `.ست` : Force Time Sync
-⊳ `.time [1/2]` : Online Clock in Name
-⊳ `.font` : Choose Clock Font (30 styles)
-⊳ `.symbol [1/2/time]` : Rotating Symbols
-⊳ `.in` or `.sp` : Fast Media Downloader
+🎵 Music & Download:
+⊳ `.in` / `.sp` : Fast media downloader
 ⊳ `.spotify [link]` : Download Spotify track (mp3)
-⊳ `.tts [text]` : Text to voice
-⊳ `.for [link]` : Bypass Channel Lock (supports comments)
-⊳ `.وضعیت` : Server Resource Monitor
-⊳ `.اپتایم` : Bot Uptime
-⊳ `.ریست` : Clear Cache & RAM
-⊳ `.ریستارت` : Restart Bot
-⊳ `.خاموش` / `.روشن` : Pause / Resume userbot
-⊳ `.ping` : Connection Speed Test
-⊳ `.info` : Extract User Info
-⊳ `.ghost [text]` : Auto-delete msg (3s)
-⊳ `.del` : Fast Message Delete
-⊳ `.afk [reason]` / `.back` : AFK Mode
+⊳ `.دانلود [link]` : Direct file download
+⊳ `.for [link]` : Bypass channel lock (with comments)
+
+🔍 Search & Tools:
+⊳ `.image [text]` : 🎨 AI image generation
+⊳ `.tagall [text]` : 📣 Invisible member mention
+⊳ `.sch [text]` : Web search
+⊳ `.خبر` / `.خبر کوتاه` : News report / short news
+⊳ `.post [num]` : News post count
+⊳ `.tr [lang] [text]` : Smart translator
+⊳ `.sum` : Text summarizer
+⊳ `.arz [code]` : Currency rates
+⊳ `.fake [sec]` : Fake typing
+⊳ `.ttl` : Silently save TTL media
+⊳ `.antidel [1/0]` : Anti-delete for PV
+
+⚙️ System & Profile:
+⊳ `.st` : 🌍 UI language
+⊳ `.setname [name]` / `.setbio [text]` : Account name & bio
+⊳ `.ست` : Sync time
+⊳ `.time [1/2]` : Online clock
+⊳ `.font` : Clock font (30 styles)
+⊳ `.symbol [1/2/time]` : Rotating name symbol
+⊳ `.وضعیت` : Server monitor
+⊳ `.اپتایم` : Uptime
+⊳ `.ریست` : Clear cache & RAM
+⊳ `.ریستارت` : Restart bot
+⊳ `.خاموش` / `.روشن` : Pause / resume userbot
+⊳ `.ping` : Speed test
+⊳ `.info` : User info
+⊳ `.ghost [text]` : Ghost message (3s)
+⊳ `.del` : Quick delete
+⊳ `.afk [reason]` / `.back` : AFK mode
 """
 
     mix_help = """
-💎 ❲ **Kral Userbot | راهنمای جامع** ❳ 💎
+💎 ❲ Kral Userbot | راهنمای جامع ❳ 💎
 ━━━━━━━━━━━━━━━━━━━━
 🤖 ❲ هوش مصنوعی | AI & Chat ❳
-⊳ `.ai [text]` : چت هوشمند | Smart Chat (روی عکس ریپلای کن تا ببیندش؛ کانال را چک می‌کند و گزارش می‌دهد)
+⊳ `.ai [text]` : چت هوشمند | Smart Chat (روی عکس ریپلای کن تا ببیندش)
 ⊳ `.فراموش` : پاک کردن حافظه | Clear Memory
-⊳ `.tool add نام | آدرس | کلید | توضیح` یا توضیح آزاد : ثبت ابزار | Register Tool — بعد با `.{نام} <ورودی>` صدا می‌زنیش
+⊳ `.tool add نام | آدرس | کلید | توضیح` : ثبت ابزار | Register Tool
 ⊳ `.tool list` / `.tool del [نام]` : لیست ابزارها | List & Delete
 ⊳ `.نظر` : تحلیل پیام | Analyze msg
 ⊳ `.ais` / `.models` : لیست مدل‌ها | Your Models
-⊳ `.add` : ویزارد افزودن مدل | Add Model Wizard (یا `.add نام | مدل | کلید | آدرس`)
+⊳ `.add` : ویزارد افزودن مدل | Add Model Wizard
 ⊳ `.del [نام]` : حذف مدل | Delete Model
 ⊳ `.ailen [1/2]` : طول پیام | Response Length
 ⊳ `.tone` : لحن ربات | Bot Tone
 ⊳ `.kral` : دفاع از نام | Defense Mode
-⊳ `.pv [1/2]` : منشی پیوی | PV Auto-reply
-⊳ `.gp [1/2]` : منشی گروه | GP Auto-reply
+⊳ `.pv [1/2]` / `.gp [1/2]` : منشی پیوی / گروه | PV / GP Auto-reply
 ⊳ `.type [1/2]` : افکت تایپ | Typing Effect
 
-🌐 ❲ ابزارها | Tools & Search ❳
+🎙 ❲ ویس | Voice ❳
+⊳ `.tts [متن]` / `.ویس [متن]` : متن به ویس | Text to voice (Edge-TTS / gTTS)
+⊳ `.gtts` / `.گویس [متن]` : ویس با Gemini | Gemini Voice (۳۰ صدا + لحن)
+⊳ `.gkey` / `.گکلید` : مدیریت کلیدها | Manage Keys
+⊳ `.gkey add` / `.گکلید اضافه` : افزودن کلید | Add Key (ویزارد | Wizard)
+⊳ `.gkey del` / `.گکلید حذف [شماره/نام]` : حذف کلید | Delete Key
+⊳ `.gvoice` / `.گصدا [شماره/نام]` : انتخاب صدا | Pick Voice (زنانه / مردانه)
+⊳ `.gtone` / `.گلحن [نام]` : انتخاب لحن | Pick Tone
+⊳ `.gmodel` / `.گمدل [شماره]` : انتخاب مدل | Pick Model
+
+🎵 ❲ موزیک و دانلود | Music & Download ❳
+⊳ `.in` / `.sp` : دانلودر | Downloader
+⊳ `.spotify [لینک]` : آهنگ اسپاتیفای | Spotify track
+⊳ `.دانلود [link]` : دانلود مستقیم | Direct Download
+⊳ `.for [link]` : دور زدن قفل | Bypass Lock (با کامنت | Comments)
+
+🌐 ❲ جستجو و ابزار | Search & Tools ❳
 ⊳ `.image [text]` : 🎨 نقاشی | AI Image
 ⊳ `.tagall [text]` : 📣 تگ گروهی | Tag All
 ⊳ `.sch [text]` : جستجوگر وب | Web Search
-⊳ `.خبر` : گزارش اخبار | News Report
-⊳ `.خبر کوتاه` : اخبار کوتاه | Short News
+⊳ `.خبر` / `.خبر کوتاه` : اخبار | News / Short News
 ⊳ `.post [num]` : تعداد خبر | News Count
 ⊳ `.tr [lang] [text]` : مترجم | Translator
 ⊳ `.sum` : خلاصه‌ساز | Summarizer
@@ -1321,20 +1357,14 @@ async def help_cmd(event):
 ⊳ `.fake [sec]` : تایپ جعلی | Fake Typing
 ⊳ `.ttl` : مدیای تایمردار | TTL Media Saver
 ⊳ `.antidel [1/0]` : ضدحذف پیوی | Anti-delete
-⊳ `.دانلود [link]` : دانلود مستقیم | Direct Download
 
 ⚙️ ❲ سیستم و پروفایل | System & Profile ❳
 ⊳ `.st` : 🌍 زبان رابط | UI Language
-⊳ `.setname [name]` : اسم پایه | Base Name
-⊳ `.setbio [text]` : بیو اکانت | Account Bio
+⊳ `.setname [name]` / `.setbio [text]` : نام و بیو | Name & Bio
 ⊳ `.ست` : همگام‌سازی زمان | Sync Time
 ⊳ `.time [1/2]` : ساعت پروفایل | Time Profile
-⊳ `.font` : فونت ساعت | Clock Font
+⊳ `.font` : فونت ساعت | Clock Font (۳۰ مدل)
 ⊳ `.symbol [1/2/time]` : نمادها | Symbols
-⊳ `.in` / `.sp` : دانلودر | Downloader
-⊳ `.spotify [لینک]` : آهنگ اسپاتیفای | Spotify track
-⊳ `.tts [متن]` : متن به ویس | Text to voice
-⊳ `.for [link]` : دور زدن قفل | Bypass Lock (پشتیبانی از کامنت | Comments)
 ⊳ `.وضعیت` : مانیتورینگ | Sys Monitor
 ⊳ `.اپتایم` : زمان روشنی | Uptime
 ⊳ `.ریست` : پاکسازی رم | Reset Cache
@@ -2647,6 +2677,405 @@ async def tts_cmd(event):
                     os.remove(p)
             except Exception:
                 pass
+
+# ==========================================
+# ویس با Gemini TTS — مدل‌های gemini-2.5-flash-preview-tts و pro
+# کلیدها فقط در config.json روی هاست می‌مانند (با .gkey add اضافه می‌شوند)،
+# هرگز در کد نیستند. اگر کلیدی به محدودیت خورد (429/403)، خودکار سراغ
+# کلید بعدی می‌رود. صداها به زنانه/مردانه تفکیک شده‌اند.
+# ==========================================
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_TTS_MODELS = [
+    ("gemini-2.5-flash-preview-tts", "سریع و ارزون"),
+    ("gemini-2.5-pro-preview-tts", "کیفیت بالا"),
+    ("gemini-3.1-flash-tts-preview", "جدید"),
+]
+GEMINI_VOICES_FEMALE = [
+    ("Achernar", "Soft"), ("Aoede", "Breezy"), ("Autonoe", "Bright"),
+    ("Callirrhoe", "Easy-going"), ("Despina", "Smooth"), ("Erinome", "Clear"),
+    ("Gacrux", "Mature"), ("Kore", "Firm"), ("Laomedeia", "Upbeat"),
+    ("Leda", "Youthful"), ("Pulcherrima", "Forward"), ("Sulafat", "Warm"),
+    ("Vindemiatrix", "Gentle"), ("Zephyr", "Bright"),
+]
+GEMINI_VOICES_MALE = [
+    ("Achird", "Friendly"), ("Algenib", "Gravelly"), ("Algieba", "Smooth"),
+    ("Alnilam", "Firm"), ("Charon", "Informative"), ("Enceladus", "Breathy"),
+    ("Fenrir", "Excitable"), ("Iapetus", "Clear"), ("Orus", "Firm"),
+    ("Puck", "Upbeat"), ("Rasalgethi", "Informative"), ("Sadachbia", "Lively"),
+    ("Sadaltager", "Knowledgeable"), ("Schedar", "Even"), ("Umbriel", "Easy-going"),
+    ("Zubenelgenubi", "Casual"),
+]
+GEMINI_VOICES_ALL = GEMINI_VOICES_FEMALE + GEMINI_VOICES_MALE
+GEMINI_TONES = [
+    ("normal", "عادی", ""),
+    ("cheerful", "شاد", "Say cheerfully: "),
+    ("sad", "غمگین", "Say sadly: "),
+    ("angry", "عصبانی", "Say angrily: "),
+    ("calm", "آرام", "Say calmly: "),
+    ("excited", "هیجانی", "Say excitedly: "),
+    ("serious", "جدی", "Say seriously: "),
+    ("friendly", "دوستانه", "Say in a friendly tone: "),
+    ("dramatic", "دراماتیک", "Say dramatically: "),
+    ("whisper", "نجوا", "Say in a whisper: "),
+]
+GEMINI_TONE_MAP = {k: p for k, _, p in GEMINI_TONES}
+GKEY_WIZARD = {}
+GKEY_WIZARD_TIMEOUT = 300
+
+
+def _mask_key(key):
+    """نمایش ماسک‌شده‌ی کلید — کلید کامل هیچ‌جا نمایش داده نمی‌شود."""
+    if not key:
+        return "—"
+    if len(key) <= 10:
+        return key[:2] + "…" + "*" * 4
+    return key[:5] + "…" + key[-4:]
+
+
+def _gtts_voice_name():
+    v = (config.get("gtts_voice") or "Aoede").strip()
+    names = [n for n, _ in GEMINI_VOICES_ALL]
+    return v if v in names else "Aoede"
+
+
+def _gtts_tone_prefix():
+    return GEMINI_TONE_MAP.get(config.get("gtts_tone") or "normal", "")
+
+
+def _gemini_tts_once(api_key, model, voice, text):
+    """یک درخواست TTS به Gemini. برمی‌گرداند: (pcm_bytes یا None, خطا یا None).
+    خطا: 'quota' (محدودیت — کلید بعدی امتحان شود)؛ 'badkey' (کلید نامعتبر —
+    کلید بعدی امتحان شود)؛ 'bad' (درخواست اشتباه)؛ 'net' (مشکل شبکه)."""
+    full_text = _gtts_tone_prefix() + text
+    url = f"{GEMINI_API_BASE}/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": full_text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},
+        },
+    }
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            out = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (429, 403):
+            return None, "quota"
+        if e.code in (400, 401):
+            return None, "badkey"
+        return None, "net"
+    except Exception:
+        return None, "net"
+    try:
+        part = out["candidates"][0]["content"]["parts"][0]
+        return base64.b64decode(part["inlineData"]["data"]), None
+    except Exception:
+        return None, "bad"
+
+
+def _gtts_make_voice(text, temp_base):
+    """همگام (در thread اجرا می‌شود): متن را با Gemini TTS به ogg تبدیل می‌کند.
+    کلیدها به‌ترتیب امتحان می‌شوند؛ اگر کلیدی به محدودیت خورد، سراغ بعدی می‌رود.
+    برمی‌گرداند: (مسیر ogg یا None, کلید خطا یا None)."""
+    keys = [k for k in (config.get("gtts_keys") or []) if isinstance(k, dict) and k.get("key")]
+    if not keys:
+        return None, "no_keys"
+    try:
+        import imageio_ffmpeg
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None, "no_ffmpeg"
+    if not ffmpeg:
+        return None, "no_ffmpeg"
+    model = config.get("gtts_model") or GEMINI_TTS_MODELS[0][0]
+    voice = _gtts_voice_name()
+    pcm = None
+    last_err = "failed"
+    for entry in keys:
+        pcm, err = _gemini_tts_once(entry["key"], model, voice, text)
+        if pcm:
+            break
+        last_err = err or "failed"
+        if err not in ("quota", "badkey"):
+            break  # فقط محدودیت سهمیه یا کلید نامعتبر ارزش امتحان کلید بعدی را دارد
+    if not pcm:
+        return None, last_err
+    pcm_path = temp_base + ".pcm"
+    ogg_path = temp_base + ".ogg"
+    try:
+        with open(pcm_path, "wb") as f:
+            f.write(pcm)
+        proc = subprocess.run(
+            [ffmpeg, "-y", "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", pcm_path,
+             "-c:a", "libopus", "-b:a", "64k", "-ar", "48000", "-ac", "1", ogg_path],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception:
+        return None, "ffmpeg_failed"
+    finally:
+        try:
+            if os.path.exists(pcm_path):
+                os.remove(pcm_path)
+        except Exception:
+            pass
+    if proc.returncode == 0 and os.path.exists(ogg_path) and os.path.getsize(ogg_path) > 0:
+        return ogg_path, None
+    return None, "ffmpeg_failed"
+
+
+@user_client.on(events.NewMessage(outgoing=True))
+async def gkey_wizard_catcher(event):
+    """گیرنده‌ی پاسخ‌های ویزارد .gkey add — مثل ویزارد .add.
+    قبل از هندلر .gkey add تعریف شده تا پیام دستور خودش ویزارد را لغو نکند."""
+    chat_id = event.chat_id
+    state = GKEY_WIZARD.get(chat_id)
+    if not state:
+        return
+    text = (event.raw_text or "").strip()
+    if text == ".cancel":
+        GKEY_WIZARD.pop(chat_id, None)
+        await _wizard_ask(chat_id, state, _t("❌ افزودن کلید لغو شد.", "❌ Key setup cancelled.", "❌ لغو شد | Cancelled"))
+        raise events.StopPropagation
+    if _wizard_expired(state):
+        GKEY_WIZARD.pop(chat_id, None)
+        await _wizard_ask(chat_id, state, _t("⏰ زمان ویزارد تمام شد. دوباره `.gkey add` (یا `.گکلید اضافه`) بزن.", "⏰ Wizard expired. Send `.gkey add` again.", "⏰ ویزارد منقضی شد | Wizard expired"))
+        return
+    if not text:
+        return
+    if text.startswith("."):
+        GKEY_WIZARD.pop(chat_id, None)
+        await _wizard_ask(chat_id, state, _t("❌ ویزارد لغو شد — دستور جدید اجرا می‌شود.", "❌ Wizard cancelled — running your command.", "❌ ویزارد لغو شد | Wizard cancelled"))
+        return
+    state["ts"] = time.time()
+    step = state["step"]
+    data = state["data"]
+    if step == "label":
+        data["label"] = text
+        state["step"] = "key"
+        await _wizard_ask(chat_id, state, _t("🔑 **مرحله ۲ از ۲ — کلید (API key)**\nکلید Gemini را بنویس:\n⚠️ پیام کلید بعد از ذخیره، خودکار حذف می‌شود.\n\n(لغو با `.cancel`)", "🔑 **Step 2 of 2 — API key**\nSend the Gemini key.\n⚠️ Your key message will be auto-deleted after saving.\n\n(Cancel with `.cancel`)", "🔑 ❲ مرحله ۲ از ۲ | کلید ❳\n⊳ کلید Gemini را بنویس:\n⚠️ پیام کلید بعد از ذخیره حذف می‌شود.\n\n(لغو با `.cancel`)"))
+    elif step == "key":
+        data["key"] = text
+        try:
+            await event.delete()
+        except Exception:
+            pass
+        keys = config.get("gtts_keys") or []
+        keys = [k for k in keys if k.get("label") != data["label"]]
+        keys.append({"label": data["label"], "key": data["key"]})
+        config["gtts_keys"] = keys
+        save_config(config)
+        GKEY_WIZARD.pop(chat_id, None)
+        await _wizard_ask(chat_id, state, _t(f"✅ کلید «{data['label']}» اضافه شد.\n⊳ کلید: `{_mask_key(data['key'])}`\nحالا با `.gtts [متن]` ویس بساز.", f"✅ Key «{data['label']}» added.\n⊳ Key: `{_mask_key(data['key'])}`\nMake voice with `.gtts [text]`.", f"✅ ❲ کلید اضافه شد | Key Added ❳\n⊳ نام | Label: `{data['label']}`\n⊳ کلید | Key: `{_mask_key(data['key'])}`"))
+    raise events.StopPropagation
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gtts|گویس)(?:\s+([\s\S]+))?$'))
+async def gtts_cmd(event):
+    text = (event.pattern_match.group(1) or "").strip()
+    reply = await event.get_reply_message()
+    if not text and reply and reply.text:
+        text = reply.text.strip()
+    if not text:
+        keys = config.get("gtts_keys") or []
+        voice = _gtts_voice_name()
+        tone_id = config.get("gtts_tone") or "normal"
+        tone_fa = next((fa for k, fa, _ in GEMINI_TONES if k == tone_id), "عادی")
+        model = config.get("gtts_model") or GEMINI_TTS_MODELS[0][0]
+        mix = (
+            "🎙 ❲ ویس Gemini | Gemini TTS ❳\n━━━━━━━━━━━━━━━\n"
+            f"⊳ صدا | Voice: `{voice}`\n"
+            f"⊳ لحن | Tone: {tone_fa}\n"
+            f"⊳ مدل | Model: `{model}`\n"
+            f"⊳ کلیدها | Keys: {len(keys)}\n\n"
+            "`.gtts` / `.گویس [متن]` — ساخت ویس\n"
+            "`.gkey` / `.گکلید` — مدیریت کلیدها\n"
+            "`.gvoice` / `.گصدا` — انتخاب صدا\n"
+            "`.gtone` / `.گلحن` — انتخاب لحن\n"
+            "`.gmodel` / `.گمدل` — انتخاب مدل"
+        )
+        return await event.edit(_t(mix, mix, mix))
+    if len(text) > TTS_MAX_CHARS:
+        return await event.edit(_t(f"❌ متن خیلی طولانیه — حداکثر {TTS_MAX_CHARS} کاراکتر.", f"❌ Text too long — max {TTS_MAX_CHARS} characters.", f"❌ متن طولانیه | Too long — max {TTS_MAX_CHARS} chars"))
+    keys = [k for k in (config.get("gtts_keys") or []) if isinstance(k, dict) and k.get("key")]
+    if not keys:
+        return await event.edit(_t("❌ هنوز هیچ کلید Gemini اضافه نشده.\nبا `.gkey add` (یا `.گکلید اضافه`) یک کلید اضافه کن.", "❌ No Gemini key added yet.\nAdd one with `.gkey add`.", "❌ کلیدی نیست | No keys\n⊳ با `.gkey add` (یا `.گکلید اضافه`) یک کلید اضافه کن."))
+    msg = await event.edit(_t("⏳ ساخت ویس با Gemini...", "⏳ Generating voice with Gemini...", "⏳ ❲ ساخت ویس | Generating ❳..."))
+    temp_base = os.path.join(TEMP_DIR, f"gtts_{int(time.time())}")
+    ogg_path, err = await asyncio.to_thread(_gtts_make_voice, text, temp_base)
+    try:
+        if err == "no_keys":
+            await msg.edit(_t("❌ هنوز هیچ کلید Gemini اضافه نشده.\nبا `.gkey add` (یا `.گکلید اضافه`) یک کلید اضافه کن.", "❌ No Gemini key added yet.\nAdd one with `.gkey add`.", "❌ کلیدی نیست | No keys"))
+            return
+        if err == "no_ffmpeg":
+            await msg.edit(_t("❌ ffmpeg پیدا نشد.", "❌ ffmpeg not found.", "❌ ffmpeg پیدا نشد | No ffmpeg"))
+            return
+        if err == "quota":
+            await msg.edit(_t("❌ همه‌ی کلیدها به محدودیت خوردند (سهمیه روزانه تمام شده).\nکلید جدید با `.gkey add` (یا `.گکلید اضافه`) اضافه کن.", "❌ All keys hit the rate limit (daily quota exhausted).\nAdd a new key with `.gkey add`.", "❌ همه کلیدها محدود شدند | All keys limited\n⊳ با `.gkey add` کلید جدید اضافه کن."))
+            return
+        if err == "badkey":
+            await msg.edit(_t("❌ کلید Gemini معتبر نیست.\nبا `.gkey` کلیدها را بررسی یا عوض کن.", "❌ The Gemini key is not valid.\nCheck or replace it with `.gkey`.", "❌ کلید نامعتبر | Invalid key\n⊳ با `.gkey` بررسی یا عوضش کن."))
+            return
+        if err or not ogg_path or not os.path.exists(ogg_path):
+            await msg.edit(_t("❌ ساخت ویس ناموفق بود.", "❌ Voice generation failed.", "❌ ساخت ویس نشد | Voice failed"))
+            return
+        await user_client.send_file(event.chat_id, ogg_path, voice_note=True, reply_to=reply)
+        await msg.delete()
+    except Exception as e:
+        await msg.edit(f"❌ Error:\n{e}")
+    finally:
+        for p in (temp_base + ".pcm", temp_base + ".ogg"):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gkey|گکلید)$'))
+async def gkey_menu(event):
+    keys = config.get("gtts_keys") or []
+    if not keys:
+        mix = (
+            "🔑 ❲ کلیدهای Gemini | Gemini Keys ❳\n━━━━━━━━━━━━━━━\n"
+            "⊳ هنوز هیچ کلیدی اضافه نشده.\n\n"
+            "⊳ افزودن: `.gkey add` / `.گکلید اضافه` (ویزارد) یا `.gkey add نام | کلید`"
+        )
+        return await event.edit(_t(mix, mix, mix))
+    mix = "🔑 ❲ کلیدهای Gemini | Gemini Keys ❳\n━━━━━━━━━━━━━━━\n"
+    for i, k in enumerate(keys, 1):
+        mark = "✅" if i == 1 else "🔸"
+        mix += f"{mark} {i}. {k.get('label', f'key{i}')} — `{_mask_key(k.get('key', ''))}`\n"
+    mix += (
+        "━━━━━━━━━━━━━━━\n"
+        "⊳ افزودن: `.gkey add` / `.گکلید اضافه` یا `.gkey add نام | کلید`\n"
+        "⊳ حذف: `.gkey del` / `.گکلید حذف <شماره یا نام>`\n"
+        "⊳ اگر کلیدی به محدودیت بخورد، خودکار سراغ بعدی می‌رود."
+    )
+    await event.edit(_t(mix, mix, mix))
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gkey add|گکلید اضافه)(?:\s+(.*))?$'))
+async def gkey_add(event):
+    raw = (event.pattern_match.group(1) or "").strip()
+    if not raw:
+        GKEY_WIZARD[event.chat_id] = {"step": "label", "data": {}, "prompt_msg_id": event.id, "ts": time.time()}
+        await event.edit(_t("📝 **مرحله ۱ از ۲ — نام کلید**\nیک نام برای این کلید بنویس:\n`main`\n\n(لغو با `.cancel`)", "📝 **Step 1 of 2 — key label**\nSend a label for this key:\n`main`\n\n(Cancel with `.cancel`)", "📝 ❲ مرحله ۱ از ۲ | نام کلید ❳\n⊳ یک نام بنویس:\n`main`\n\n(لغو با `.cancel`)"))
+        return
+    parts = [p.strip() for p in raw.split("|")]
+    if len(parts) != 2 or not all(parts):
+        return await event.edit(_t("❌ فرمت اشتباه است.\nاستفاده:\n`.gkey add نام | کلید` یا `.گکلید اضافه نام | کلید`\n\nیا فقط `.gkey add` بزن و مرحله‌به‌مرحله جواب بده.", "❌ Wrong format.\nUsage:\n`.gkey add label | key`\n\nOr just send `.gkey add` and answer step by step.", "❌ فرمت اشتباه | Wrong format\n⊳ استفاده | Usage:\n`.gkey add نام | کلید` یا `.گکلید اضافه نام | کلید`\n\nیا فقط `.gkey add` بزن."))
+    label, key = parts
+    keys = config.get("gtts_keys") or []
+    keys = [k for k in keys if k.get("label") != label]
+    keys.append({"label": label, "key": key})
+    config["gtts_keys"] = keys
+    save_config(config)
+    try:
+        await event.delete()
+    except Exception:
+        pass
+    await user_client.send_message(event.chat_id, _t(f"✅ کلید «{label}» اضافه شد.\n⊳ کلید: `{_mask_key(key)}`\nحالا با `.gtts [متن]` ویس بساز.", f"✅ Key «{label}» added.\n⊳ Key: `{_mask_key(key)}`\nMake voice with `.gtts [text]`.", f"✅ ❲ کلید اضافه شد | Key Added ❳\n⊳ نام | Label: `{label}`\n⊳ کلید | Key: `{_mask_key(key)}`"))
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gkey del|گکلید حذف)\s+(.+)$'))
+async def gkey_del(event):
+    arg = event.pattern_match.group(1).strip()
+    keys = config.get("gtts_keys") or []
+    idx = None
+    if arg.isdigit():
+        i = int(arg) - 1
+        if 0 <= i < len(keys):
+            idx = i
+    else:
+        for i, k in enumerate(keys):
+            if k.get("label") == arg:
+                idx = i
+                break
+    if idx is None:
+        return await event.edit(_t("❌ کلیدی با این شماره یا نام پیدا نشد.", "❌ No key with this number or label.", "❌ کلید پیدا نشد | Key not found"))
+    removed = keys.pop(idx)
+    config["gtts_keys"] = keys
+    save_config(config)
+    await event.edit(_t(f"✅ کلید «{removed.get('label', '')}» حذف شد.", f"✅ Key «{removed.get('label', '')}» deleted.", f"✅ ❲ کلید حذف شد | Key Deleted ❳\n⊳ {removed.get('label', '')}"))
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gvoice|گصدا)(?:\s+(.*))?$'))
+async def gvoice_menu(event):
+    arg = (event.pattern_match.group(1) or "").strip()
+    if arg:
+        if arg.isdigit():
+            i = int(arg) - 1
+            if 0 <= i < len(GEMINI_VOICES_ALL):
+                name = GEMINI_VOICES_ALL[i][0]
+                config["gtts_voice"] = name; save_config(config)
+                return await event.edit(_t(f"✅ صدای Gemini به `{name}` تغییر یافت.", f"✅ Gemini voice changed to `{name}`.", f"✅ ❲ صدا تغییر یافت | Voice Changed ❳\n⊳ `{name}`"))
+            return await event.edit(_t("❌ شماره صدا اشتباه است.", "❌ Wrong voice number.", "❌ شماره اشتباه | Wrong number"))
+        low = arg.lower()
+        for n, _ in GEMINI_VOICES_ALL:
+            if n.lower() == low:
+                config["gtts_voice"] = n; save_config(config)
+                return await event.edit(_t(f"✅ صدای Gemini به `{n}` تغییر یافت.", f"✅ Gemini voice changed to `{n}`.", f"✅ ❲ صدا تغییر یافت | Voice Changed ❳\n⊳ `{n}`"))
+        return await event.edit(_t("❌ صدایی با این نام پیدا نشد.", "❌ No voice with this name.", "❌ صدا پیدا نشد | Voice not found"))
+    cur = _gtts_voice_name()
+    mix = "🎙 ❲ صداهای Gemini | Gemini Voices ❳\n━━━━━━━━━━━━━━━\n👩 زنانه | Female:\n"
+    for i, (n, c) in enumerate(GEMINI_VOICES_FEMALE, 1):
+        mark = "✅" if n == cur else "🔸"
+        mix += f"{mark} {i}. {n} — {c}\n"
+    mix += "👨 مردانه | Male:\n"
+    for j, (n, c) in enumerate(GEMINI_VOICES_MALE, len(GEMINI_VOICES_FEMALE) + 1):
+        mark = "✅" if n == cur else "🔸"
+        mix += f"{mark} {j}. {n} — {c}\n"
+    mix += "━━━━━━━━━━━━━━━\n⊳ انتخاب: `.gvoice` / `.گصدا <شماره>` یا `.گصدا <نام>`"
+    await event.edit(_t(mix, mix, mix))
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gtone|گلحن)(?:\s+(.*))?$'))
+async def gtone_menu(event):
+    arg = (event.pattern_match.group(1) or "").strip()
+    if arg:
+        if arg.isdigit():
+            i = int(arg) - 1
+            if 0 <= i < len(GEMINI_TONES):
+                kid, kfa, _ = GEMINI_TONES[i]
+                config["gtts_tone"] = kid; save_config(config)
+                return await event.edit(_t(f"✅ لحن ویس به «{kfa}» تغییر یافت.", f"✅ Voice tone changed to «{kfa}».", f"✅ ❲ لحن تغییر یافت | Tone Changed ❳\n⊳ {kfa}"))
+            return await event.edit(_t("❌ شماره لحن اشتباه است.", "❌ Wrong tone number.", "❌ شماره اشتباه | Wrong number"))
+        low = arg.lower()
+        for kid, kfa, _ in GEMINI_TONES:
+            if low in (kid.lower(), kfa):
+                config["gtts_tone"] = kid; save_config(config)
+                return await event.edit(_t(f"✅ لحن ویس به «{kfa}» تغییر یافت.", f"✅ Voice tone changed to «{kfa}».", f"✅ ❲ لحن تغییر یافت | Tone Changed ❳\n⊳ {kfa}"))
+        return await event.edit(_t("❌ لحنی با این نام پیدا نشد.", "❌ No tone with this name.", "❌ لحن پیدا نشد | Tone not found"))
+    cur = config.get("gtts_tone") or "normal"
+    mix = "🎭 ❲ لحن ویس Gemini | Gemini Tone ❳\n━━━━━━━━━━━━━━━\n"
+    for i, (kid, kfa, _) in enumerate(GEMINI_TONES, 1):
+        mark = "✅" if kid == cur else "🔸"
+        mix += f"{mark} {i}. {kfa} | {kid}\n"
+    mix += "━━━━━━━━━━━━━━━\n⊳ انتخاب: `.gtone` / `.گلحن <شماره>` یا `.گلحن <نام>`"
+    await event.edit(_t(mix, mix, mix))
+
+
+@user_client.on(events.NewMessage(outgoing=True, pattern=r'^\.(?:gmodel|گمدل)(?:\s+(.*))?$'))
+async def gmodel_menu(event):
+    arg = (event.pattern_match.group(1) or "").strip()
+    if arg and arg.isdigit():
+        i = int(arg) - 1
+        if 0 <= i < len(GEMINI_TTS_MODELS):
+            model, desc = GEMINI_TTS_MODELS[i]
+            config["gtts_model"] = model; save_config(config)
+            return await event.edit(_t(f"✅ مدل Gemini TTS به `{model}` تغییر یافت.", f"✅ Gemini TTS model changed to `{model}`.", f"✅ ❲ مدل تغییر یافت | Model Changed ❳\n⊳ `{model}`"))
+        return await event.edit(_t("❌ شماره مدل اشتباه است.", "❌ Wrong model number.", "❌ شماره اشتباه | Wrong number"))
+    cur = config.get("gtts_model") or GEMINI_TTS_MODELS[0][0]
+    mix = "🤖 ❲ مدل Gemini TTS | Model ❳\n━━━━━━━━━━━━━━━\n"
+    for i, (m, d) in enumerate(GEMINI_TTS_MODELS, 1):
+        mark = "✅" if m == cur else "🔸"
+        mix += f"{mark} {i}. `{m}` — {d}\n"
+    mix += "━━━━━━━━━━━━━━━\n⊳ انتخاب: `.gmodel` / `.گمدل <شماره>`"
+    await event.edit(_t(mix, mix, mix))
 
 # سقف حجم هر فایل در .for — مثل .دانلود
 FOR_MAX_MB = 2048  # سقف حجم فایل در .for (سقف ۲ گیگابایت)
